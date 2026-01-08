@@ -45,6 +45,9 @@ This project unlocks the full potential of your device by outputting **16-bit Ra
 
 *Note: The script will ask for your `sudo` password to load kernel modules and set permissions.*
 
+> [!IMPORTANT]  
+> **Hardware Connection**: Connect the FLIR One Pro LT to your computer using the **Male USB-C Connector** (the one that plugs into your phone). Do **NOT** use the female USB-C charging port on the bottom of the device; it is for charging only and does not transmit data. Use a USB-C Female to USB-A/C Male extension cable if needed.
+
 ## Architecture
 
 *   **Driver** (`driver/flirone.c`): 
