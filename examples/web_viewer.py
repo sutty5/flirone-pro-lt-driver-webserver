@@ -1,4 +1,4 @@
-from flask import Flask, Response, render_template_string, request, jsonify
+from flask import Flask, Response, render_template, request, jsonify
 import cv2
 import numpy as np
 import time
@@ -8,7 +8,6 @@ from flir.colormap import load_palette, PALETTE_DIR
 
 app = Flask(__name__)
 
-# Device Configuration
 # Device Configuration
 THERMAL_DEVICE = os.environ.get('FLIR_THERMAL_DEVICE', '/dev/video10')
 VISIBLE_DEVICE = os.environ.get('FLIR_VISIBLE_DEVICE', '/dev/video11')
@@ -159,70 +158,11 @@ def generate_visible():
 @app.route('/')
 def index():
     palettes = get_available_palettes()
-    return render_template_string('''
-<html>
-<head>
-    <title>FLIR One Pro LT - Web Viewer</title>
-    <style>
-        body { background: #1a1a1a; color: #eee; font-family: sans-serif; text-align: center; }
-        .container { display: flex; flex-wrap: wrap; justify-content: center; gap: 20px; padding: 20px; }
-        .stream { background: #000; padding: 10px; border-radius: 8px; }
-        h2 { margin-top: 0; }
-        img { max-width: 100%; height: auto; border-radius: 4px; }
-        .controls { margin: 20px; padding: 10px; background: #333; border-radius: 8px; display: inline-block; }
-        select { padding: 5px; font-size: 16px; border-radius: 4px; }
-        .check { margin-left: 20px; display: inline-block; }
-        label { margin-left: 5px; cursor: pointer; }
-    </style>
-    <script>
-        function updatePalette(selectObject) {
-            var value = selectObject.value;  
-            fetch('/api/set_palette?name=' + value)
-                .then(response => response.json())
-                .then(data => console.log(data));
-        }
-        function toggleSpot(type, checkbox) {
-            fetch('/api/toggle_spot?type=' + type + '&state=' + checkbox.checked)
-                .then(response => response.json())
-                .then(data => console.log(data));
-        }
-    </script>
-</head>
-<body>
-    <h1>FLIR One Pro LT Stream</h1>
-    
-    <div class="controls">
-        <label for="palette">Color Palette: </label>
-        <select id="palette" onchange="updatePalette(this)">
-            {% for p in palettes %}
-            <option value="{{ p }}" {% if p == current_palette %}selected{% endif %}>{{ p }}</option>
-            {% endfor %}
-        </select>
-        
-        <div class="check">
-            <input type="checkbox" id="hotspot" onclick="toggleSpot('hot', this)" {% if show_hot %}checked{% endif %}>
-            <label for="hotspot">Show Hotspot</label>
-        </div>
-        
-        <div class="check">
-            <input type="checkbox" id="coldspot" onclick="toggleSpot('cold', this)" {% if show_cold %}checked{% endif %}>
-            <label for="coldspot">Show Coldspot</label>
-        </div>
-    </div>
-
-    <div class="container">
-        <div class="stream">
-            <h2>Thermal (Radiometric °C)</h2>
-            <img src="/video_thermal" width="640" height="480">
-        </div>
-        <div class="stream">
-            <h2>Visible</h2>
-            <img src="/video_visible" width="640" height="480">
-        </div>
-    </div>
-</body>
-</html>
-    ''', palettes=palettes, current_palette=CURRENT_PALETTE_NAME, show_hot=SHOW_HOTSPOT, show_cold=SHOW_COLDSPOT)
+    return render_template('index.html', 
+                          palettes=palettes, 
+                          current_palette=CURRENT_PALETTE_NAME, 
+                          show_hot=SHOW_HOTSPOT, 
+                          show_cold=SHOW_COLDSPOT)
 
 @app.route('/video_thermal')
 def video_thermal():

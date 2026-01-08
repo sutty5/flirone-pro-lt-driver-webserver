@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FLIR One Pro LT // TERMINAL</title>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
+
+        :root {
+            --bg-color: #0d0d0d;
+            --panel-bg: rgba(20, 20, 20, 0.8);
+            --text-color: #a0a0a0;
+            --highlight: #00fff2;
+            --thermal-color: #ff9d00;
+            --border-color: #333;
+            --grid-line: rgba(0, 255, 242, 0.1);
+        }
+
+        body {
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-family: 'Share Tech Mono', monospace;
+            margin: 0;
+            padding: 0;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            background-size: 40px 40px;
+            background-image:
+                linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+                linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+        }
+
+        header {
+            background: rgba(0, 0, 0, 0.9);
+            border-bottom: 2px solid var(--highlight);
+            padding: 10px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 0 15px rgba(0, 255, 242, 0.3);
+            z-index: 10;
+        }
+
+        h1 {
+            margin: 0;
+            font-size: 1.5rem;
+            color: var(--highlight);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+        }
+
+        .status-badge {
+            background: rgba(0, 255, 242, 0.1);
+            border: 1px solid var(--highlight);
+            padding: 4px 10px;
+            font-size: 0.8rem;
+            color: var(--highlight);
+            border-radius: 2px;
+        }
+
+        .main-container {
+            flex: 1;
+            display: flex;
+            flex-wrap: wrap;
+            padding: 20px;
+            gap: 20px;
+            overflow-y: auto;
+            justify-content: center;
+            align-items: flex-start;
+        }
+
+        .stream-panel {
+            background: var(--panel-bg);
+            border: 1px solid var(--border-color);
+            padding: 5px;
+            border-radius: 4px;
+            position: relative;
+            box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+            transition: border-color 0.3s;
+        }
+
+        .stream-panel:hover {
+            border-color: var(--highlight);
+        }
+
+        .stream-panel::before {
+            content: '';
+            position: absolute;
+            top: -2px;
+            left: -2px;
+            width: 20px;
+            height: 20px;
+            border-top: 2px solid var(--highlight);
+            border-left: 2px solid var(--highlight);
+        }
+
+        .stream-panel::after {
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            right: -2px;
+            width: 20px;
+            height: 20px;
+            border-bottom: 2px solid var(--highlight);
+            border-right: 2px solid var(--highlight);
+        }
+
+        .stream-label {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            padding: 2px 8px;
+            border: 1px solid var(--text-color);
+            font-size: 0.8rem;
+            pointer-events: none;
+            text-transform: uppercase;
+        }
+
+        .fullscreen-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: rgba(0, 0, 0, 0.7);
+            color: var(--text-color);
+            padding: 2px 8px;
+            border: 1px solid var(--text-color);
+            font-size: 0.8rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .fullscreen-btn:hover {
+            border-color: var(--highlight);
+            color: var(--highlight);
+            background: rgba(0, 255, 242, 0.1);
+        }
+
+        img {
+            display: block;
+            width: 640px;
+            height: 480px;
+            max-width: 100%;
+            height: auto;
+            /* Scanline effect */
+            mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1) 50%, rgba(0, 0, 0, 0.8) 50%);
+            mask-size: 100% 4px;
+        }
+
+        .controls-deck {
+            background: rgba(0, 0, 0, 0.85);
+            border-top: 1px solid var(--border-color);
+            padding: 15px 30px;
+            display: flex;
+            gap: 40px;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+
+        .control-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        label {
+            font-size: 0.9rem;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        select {
+            background: #111;
+            color: var(--highlight);
+            border: 1px solid var(--border-color);
+            padding: 8px 15px;
+            font-family: inherit;
+            outline: none;
+            cursor: pointer;
+            text-transform: uppercase;
+        }
+
+        select:hover {
+            border-color: var(--highlight);
+        }
+
+        /* Checkbox styling */
+        .toggle-switch {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+        }
+
+        .toggle-switch input {
+            display: none;
+        }
+
+        .toggle-box {
+            width: 20px;
+            height: 20px;
+            border: 1px solid var(--text-color);
+            margin-right: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .toggle-switch:hover .toggle-box {
+            border-color: var(--highlight);
+            box-shadow: 0 0 5px var(--highlight);
+        }
+
+        .toggle-switch input:checked+.toggle-box {
+            background: rgba(0, 255, 242, 0.2);
+            border-color: var(--highlight);
+        }
+
+        .toggle-switch input:checked+.toggle-box::after {
+            content: 'X';
+            color: var(--highlight);
+            font-size: 14px;
+        }
+
+        /* Responsive */
+        @media (max-width: 1350px) {
+            .main-container {
+                flex-direction: column;
+                align-items: center;
+            }
+        }
+    </style>
+    <script>
+        function updatePalette(selectObject) {
+            var value = selectObject.value;
+            fetch('/api/set_palette?name=' + value)
+                .then(response => response.json())
+                .then(data => console.log('Palette:', data));
+        }
+
+        function toggleSpot(type, checkbox) {
+            fetch('/api/toggle_spot?type=' + type + '&state=' + checkbox.checked)
+                .then(response => response.json())
+                .then(data => console.log('Toggle:', data));
+        }
+
+        function toggleFullScreen(elementId) {
+            var elem = document.getElementById(elementId);
+            if (!document.fullscreenElement) {
+                if (elem.requestFullscreen) {
+                    elem.requestFullscreen();
+                } else if (elem.webkitRequestFullscreen) { /* Safari */
+                    elem.webkitRequestFullscreen();
+                } else if (elem.msRequestFullscreen) { /* IE11 */
+                    elem.msRequestFullscreen();
+                }
+            } else {
+                if (document.exitFullscreen) {
+                    document.exitFullscreen();
+                }
+            }
+        }
+    </script>
+</head>
+
+<body>
+    <header>
+        <h1>FLIR One Pro LT <span style="font-size:0.5em; opacity:0.7;">// DRIVER INTERFACE</span></h1>
+        <div class="status-badge">SYSTEM: ONLINE</div>
+    </header>
+
+    <div class="main-container">
+        <!-- Thermal Stream -->
+        <div class="stream-panel" style="border-color: var(--thermal-color);">
+            <div class="stream-label" style="color: var(--thermal-color);">Radiometric Thermal</div>
+            <div class="fullscreen-btn" onclick="toggleFullScreen('thermal-img')">[MAX]</div>
+            <img id="thermal-img" src="/video_thermal" alt="Thermal Stream"
+                ondblclick="toggleFullScreen('thermal-img')">
+        </div>
+
+        <!-- Visible Stream -->
+        <div class="stream-panel">
+            <div class="stream-label" style="color: var(--highlight);">Visible Spectrum</div>
+            <div class="fullscreen-btn" onclick="toggleFullScreen('visible-img')">[MAX]</div>
+            <img id="visible-img" src="/video_visible" alt="Visible Stream"
+                ondblclick="toggleFullScreen('visible-img')">
+        </div>
+    </div>
+
+    <div class="controls-deck">
+        <div class="control-group">
+            <label for="palette">COLORMAP_SELECT:</label>
+            <select id="palette" onchange="updatePalette(this)">
+                {% for p in palettes %}
+                <option value="{{ p }}" {% if p==current_palette %}selected{% endif %}>{{ p }}</option>
+                {% endfor %}
+            </select>
+            <div style="font-size: 0.7em; color: #666; margin-left: 10px;">(Dbl-Click Stream to Maximize)</div>
+        </div>
+
+        <div class="control-group">
+            <label class="toggle-switch">
+                <input type="checkbox" id="hotspot" onclick="toggleSpot('hot', this)" {% if show_hot %}checked{% endif
+                    %}>
+                <div class="toggle-box" style="border-color: #ff3333;"></div>
+                <span>TRACK_HOT (MAX)</span>
+            </label>
+        </div>
+
+        <div class="control-group">
+            <label class="toggle-switch">
+                <input type="checkbox" id="coldspot" onclick="toggleSpot('cold', this)" {% if show_cold %}checked{%
+                    endif %}>
+                <div class="toggle-box" style="border-color: #3388ff;"></div>
+                <span>TRACK_COLD (MIN)</span>
+            </label>
+        </div>
+    </div>
+</body>
+
+</html>
