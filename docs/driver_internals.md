@@ -106,3 +106,22 @@ The driver opens two V4L2 devices for output. These are **automatically discover
 To eliminate visual tearing ("overread" errors) caused by the V4L2 loopback buffer handling:
 1.  **Atomic Writes**: The driver attempts to write the entire JPEG frame to `/dev/video11` in a single system call. If the write would block or is partial, the frame is **dropped** rather than sent as a torn fragment.
 2.  **Web Viewer Pass-Through**: The web viewer (`web_viewer.py`) bypasses OpenCV decoding for the visible stream. It reads raw MJPEG frames directly from the loopback device using `os.read()`, ensuring zero-latency and 100% frame integrity.
+
+## 7. High-Fidelity MSX (Edge Fusion)
+
+To achieve clear alignment between the narrow-FOV thermal sensor and wide-FOV visible sensor, we implement a "High-Fidelity" MSX algorithm on the CPU.
+
+### Algorithm
+Instead of standard Canny Edge Detection (which produces thin, binary lines), we use a **Difference-of-Gaussians (DoG)** high-pass filter:
+1.  **Grayscale**: Convert visible frame to Y-channel.
+2.  **Gaussian Blur**: Apply a strong blur (sigma=3.0).
+3.  **Subtraction**: `HighPass = Grayscale - Blurred + 127`
+4.  **Composition**: The result is overlaid on the thermal image using CSS `mix-blend-mode: hard-light`.
+
+This creates an embossed "texture" effect where dark edges are shaded and light edges are highlighted, simulating 3D depth.
+
+### Concurrency (VideoReader)
+Since both the "Visible Stream" and "MSX Stream" require access to `/dev/video11`, naive implementation causes "Device Busy" errors.
+*   **Solution**: A singleton `VideoReader` class spawns a background thread that holds the file descriptor open.
+*   **Buffering**: It constantly reads frames into a shared buffer. 
+*   **Consumers**: The `/video_visible` and `/video_edges` endpoints both read from this single in-memory buffer, allowing simultaneous streaming without resource contention.

@@ -227,6 +227,69 @@
             font-size: 14px;
         }
 
+        /* Edge Overlay */
+        .edge-overlay {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            mix-blend-mode: hard-light;
+            /* High-pass texture mode */
+            /* Magic composition */
+            opacity: 0;
+            /* Hidden by default */
+            transition: opacity 0.3s;
+            /* Allow transforms */
+            transform-origin: center center;
+            /* Contrast boost for punchier edges */
+            filter: contrast(1.5);
+            z-index: 10;
+            border: 1px solid rgba(255, 0, 0, 0.5);
+            /* Debug border */
+        }
+
+        .fusion-mode .edge-overlay {
+            opacity: 0.6;
+        }
+
+        .video-stack {
+            position: relative;
+            width: 640px;
+            height: 480px;
+            margin: 0 auto;
+        }
+
+        .video-stack img {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        /* Fullscreen overrides */
+        .stream-panel:fullscreen {
+            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .stream-panel:fullscreen .video-stack {
+            width: 100vw;
+            height: 100vh;
+        }
+
+        .slider-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+            font-size: 0.8rem;
+        }
+
         /* Responsive */
         @media (max-width: 1350px) {
             .main-container {
@@ -241,6 +304,33 @@
             fetch('/api/set_palette?name=' + value)
                 .then(response => response.json())
                 .then(data => console.log('Palette:', data));
+        }
+
+        function updateEmissivity(val) {
+            document.getElementById('emissivity-val').innerText = val;
+            fetch('/api/set_params?emissivity=' + val)
+                .then(response => response.json())
+                .then(data => console.log('Emissivity:', data));
+        }
+
+        function addSpot(event) {
+            var img = event.target;
+            var rect = img.getBoundingClientRect();
+            var x = event.clientX - rect.left;
+            var y = event.clientY - rect.top;
+
+            // Map to image coordinates (assuming image is displayed at natural size or handled by scaling)
+            // But CSS puts it at 640x480.
+
+            fetch('/api/add_spot?x=' + x + '&y=' + y)
+                .then(response => response.json())
+                .then(data => console.log('Spot:', data));
+        }
+
+        function clearSpots() {
+            fetch('/api/clear_spots')
+                .then(response => response.json())
+                .then(data => console.log('Cleared Spots'));
         }
 
         function toggleSpot(type, checkbox) {
@@ -265,6 +355,62 @@
                 }
             }
         }
+
+        // MSX Alignment State
+        var msx = {
+            x: 0,
+            y: 0,
+            scale: 1.5
+        };
+
+        function updateMSX() {
+            var overlay = document.getElementById('edge-overlay');
+            // Translate first, then scale
+            overlay.style.transform = `translate(${msx.x}px, ${msx.y}px) scale(${msx.scale})`;
+
+            // Update labels
+            document.getElementById('val-x').innerText = msx.x;
+            document.getElementById('val-y').innerText = msx.y;
+            document.getElementById('val-s').innerText = msx.scale;
+        }
+
+        function setMsxX(v) { msx.x = v; updateMSX(); }
+        function setMsxY(v) { msx.y = v; updateMSX(); }
+        function setMsxS(v) { msx.scale = v; updateMSX(); }
+
+        function toggleFusion(checkbox) {
+            var panel = document.getElementById('thermal-panel');
+            var edgeOverlay = document.getElementById('edge-overlay');
+            var visibleImg = document.getElementById('visible-img');
+
+            if (checkbox.checked) {
+                // Enable MSX
+                panel.classList.add('fusion-mode');
+                edgeOverlay.src = "/video_edges";
+            } else {
+                // Disable MSX
+                panel.classList.remove('fusion-mode');
+                edgeOverlay.src = "";
+            }
+
+            // Note: Since we updated the backend to use a singleton reader,
+            // we can keep the visible stream running continuously!
+            if (visibleImg.src.indexOf('video_visible') === -1) {
+                visibleImg.src = "/video_visible";
+                visibleImg.style.opacity = '1.0';
+            }
+        }
+
+        // Initialize on load to handle browser caching of checkbox state
+        window.onload = function () {
+            var checkbox = document.getElementById('fusion-toggle');
+            // Sync Toggle State
+            if (checkbox.checked) {
+                toggleFusion(checkbox);
+            }
+            // Sync MSX Transform state (apply the default 1.5 scale)
+            updateMSX();
+        }
     </script>
 </head>
 
@@ -275,12 +421,20 @@
     </header>
 
     <div class="main-container">
-        <!-- Thermal Stream -->
-        <div class="stream-panel" style="border-color: var(--thermal-color);">
+        <!-- Thermal Stream with MSX Layer -->
+        <div class="stream-panel" id="thermal-panel" style="border-color: var(--thermal-color);">
             <div class="stream-label" style="color: var(--thermal-color);">Radiometric Thermal</div>
-            <div class="fullscreen-btn" onclick="toggleFullScreen('thermal-img')">[MAX]</div>
-            <img id="thermal-img" src="/video_thermal" alt="Thermal Stream"
-                ondblclick="toggleFullScreen('thermal-img')">
+            <div class="fullscreen-btn" onclick="toggleFullScreen('thermal-panel')">[MAX]</div>
+
+            <!-- Container for stacking images -->
+            <div class="video-stack">
+                <!-- Base Thermal -->
+                <img id="thermal-img" src="/video_thermal" alt="Thermal Stream"
+                    ondblclick="toggleFullScreen('thermal-panel')" onclick="addSpot(event)">
+
+                <!-- Edge Overlay -->
+                <img id="edge-overlay" class="edge-overlay" src="" alt="Edges">
+            </div>
         </div>
 
         <!-- Visible Stream -->
@@ -294,13 +448,47 @@
 
     <div class="controls-deck">
         <div class="control-group">
-            <label for="palette">COLORMAP_SELECT:</label>
+            <label class="toggle-switch">
+                <input type="checkbox" id="fusion-toggle" onclick="toggleFusion(this)">
+                <div class="toggle-box" style="border-color: var(--highlight);"></div>
+                <span>EDGE_FUSION</span>
+            </label>
+        </div>
+
+        <div class="control-group" style="border-left: 1px solid #333; padding-left: 20px;">
+            <div class="slider-group">
+                <label>ALIGN_X: <span id="val-x" style="color:var(--highlight)">0</span></label>
+                <input type="range" min="-100" max="100" step="1" value="0" oninput="setMsxX(this.value)">
+            </div>
+            <div class="slider-group">
+                <label>ALIGN_Y: <span id="val-y" style="color:var(--highlight)">0</span></label>
+                <input type="range" min="-100" max="100" step="1" value="0" oninput="setMsxY(this.value)">
+            </div>
+            <div class="slider-group">
+                <label>SCALE: <span id="val-s" style="color:var(--highlight)">1.5</span></label>
+                <input type="range" min="0.5" max="2.0" step="0.01" value="1.5" oninput="setMsxS(this.value)">
+            </div>
+        </div>
+
+        <div class="control-group" style="border-left: 1px solid #333; padding-left: 20px;">
+            <label for="palette">COLORMAP:</label>
             <select id="palette" onchange="updatePalette(this)">
                 {% for p in palettes %}
                 <option value="{{ p }}" {% if p==current_palette %}selected{% endif %}>{{ p }}</option>
                 {% endfor %}
             </select>
-            <div style="font-size: 0.7em; color: #666; margin-left: 10px;">(Dbl-Click Stream to Maximize)</div>
+        </div>
+
+        <div class="control-group">
+            <label>Emissivity: <span id="emissivity-val">{{ emissivity }}</span></label>
+            <input type="range" min="0.1" max="1.0" step="0.01" value="{{ emissivity }}"
+                onchange="updateEmissivity(this.value)" style="width: 100px; accent-color: var(--thermal-color);">
+        </div>
+
+        <div class="control-group">
+            <button onclick="clearSpots()"
+                style="background: #333; color: #fff; border: 1px solid #555; padding: 5px 10px; cursor: pointer;">CLR
+                SPOTS</button>
         </div>
 
         <div class="control-group">
@@ -308,7 +496,7 @@
                 <input type="checkbox" id="hotspot" onclick="toggleSpot('hot', this)" {% if show_hot %}checked{% endif
                     %}>
                 <div class="toggle-box" style="border-color: #ff3333;"></div>
-                <span>TRACK_HOT (MAX)</span>
+                <span>HOT</span>
             </label>
         </div>
 
@@ -317,7 +505,7 @@
                 <input type="checkbox" id="coldspot" onclick="toggleSpot('cold', this)" {% if show_cold %}checked{%
                     endif %}>
                 <div class="toggle-box" style="border-color: #3388ff;"></div>
-                <span>TRACK_COLD (MIN)</span>
+                <span>COLD</span>
             </label>
         </div>
     </div>

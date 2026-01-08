@@ -75,25 +75,43 @@ class ThermalContext:
         else:
             safe_raw[safe_raw <= O] = O + 1.0 # Avoid division by zero/log errors
         
-        # Calculate Temp
-        # Formula: T = B / log(R1 / (raw - O) + F) - 273.15
+        # Calculate Temp using Emissivity
+        # Formula: S_obj = (S_tot - (1-E)*S_refl) / E
+        # T = B / log(R1 / (S_obj - O) + F) - 273.15
         
-        denom = safe_raw - O
-        # Avoid zero division
-        if np.ndim(safe_raw) > 0:
-            denom[denom == 0] = 1.0
+        # 1. Calc S_refl (Reflected radiance from T_refl)
+        # S_refl = R1 / (exp(B / (T_refl + 273.15)) - F) + O
+        # Pre-calc this as it is constant per frame usually
+        val_refl = (B / (T_refl + 273.15))
+        # safe exp
+        if np.abs(val_refl) < 700: # float exp limit
+             exp_val = np.exp(val_refl)
+        else:
+             exp_val = np.exp(700)
+             
+        S_refl = (R1 / (exp_val - F)) + O
+        
+        # 2. Calc S_obj (Object radiance)
+        safe_raw = np.array(raw_counts, dtype=np.float32)
+        S_obj = (safe_raw - (1.0 - E) * S_refl) / E
+        
+        # 3. Calc Object Temp
+        # Mask invalid values
+        denom = S_obj - O
+        if np.ndim(denom) > 0:
+            denom[denom == 0] = 0.001
         elif denom == 0:
-            denom = 1.0
+            denom = 0.001
             
-        val = (R1 / denom) + F
+        val_obj = (R1 / denom) + F
         
         # Avoid log of non-positive
-        if np.ndim(safe_raw) > 0:
-            val[val <= 0] = 1.0
-        elif val <= 0:
-            val = 1.0
+        if np.ndim(val_obj) > 0:
+            val_obj[val_obj <= 0] = 1.0
+        elif val_obj <= 0:
+            val_obj = 1.0
             
-        temp_k = B / np.log(val)
+        temp_k = B / np.log(val_obj)
         temp_c = temp_k - 273.15
         
         return temp_c

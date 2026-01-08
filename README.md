@@ -9,6 +9,10 @@ This project unlocks the full potential of your device by outputting **16-bit Ra
 - **16-bit Raw Output**: Streams pure 16-bit thermal data (Y16) to `/dev/video10`, preserving full radiometric precision for scientific analysis.
 - **Visible Stream**: Streams 640x480 visible video to `/dev/video11` (MJPEG), with tearing fixes implemented.
 - **Zero-Config Startup**: Single script (`start.sh`) handles module loading, compilation, and permissions.
+- **Scientific Suite**:
+    - **Radiometric Spot Meter**: Click anywhere to get temperature readings with emissivity correction.
+    - **Hot/Cold Tracking**: Auto-track min/max temperature points.
+    - **High-Fidelity MSX**: "Edge Fusion" mode with adjustable alignment and scale, using a Difference-of-Gaussians filter for clear text/edge overlay.
 - **Dual Viewers**:
   - **Web Viewer**: Flask-based browser interface (perfect for headless/remote usage).
   - **Desktop Viewer**: Fast OpenCV application with real-time colormapping (Iron, Rainbow, Grayscale).
