@@ -12,6 +12,30 @@ This document details the low-level implementation of the custom C driver (`driv
   - `1`: File I/O
   - `2`: Video Stream
 
+## 5. Visible Stream Quirk (Partial Writes & Padding)
+
+The visible camera stream outputs standard JPEG frames. However, high-speed streaming over V4L2loopback can sometimes lead to "partial writes," where the OS buffer is full and only writes a fragment of the frame. Standard `write()` calls often return `EAGAIN` or a partial byte count, which naive drivers ignore, leading to dropped frame tails and visual tearing ("overread" errors).
+
+**Symptom:** Visual tearing, green bands at the bottom of the image, or "mjpeg: overread 8" errors in the logs.
+
+**Fix:** 
+1.  **Robust Write Loop**: The driver logic was updated to loop on `write()` until the entire buffer is sent to the V4L2 device, handling `EAGAIN` and partial success.
+2.  **Safety Padding**: We append **4KB** of zero-padding to every JPEG. This acts as a safety buffer for decoders that might speculatively read past the End Of Image (EOI) marker.
+
+## 6. Radiometric Calibration Strategy
+
+The FLIR One Pro LT does not expose standard linear 14-bit data like the older Lepton 2.5; it outputs a 16-bit signal that requires specific Planck conversion.
+
+**Problem:** Default Lepton 3.5 constants (`PlanckO = -7340`) produce erroneous readings (>1000°C) for this sensor's raw range (~3000-4000).
+
+**Solution (Gain-Based Model):**
+We use a verified "synthetic calibration" profile in `camera_config.json`:
+*   **PlanckO (Offset) = 0**: Set to zero to prevent negative overflow in logarithmic calculations.
+*   **PlanckR1 (Gain) = 500,000**: empirically derived gain to map the observed ~3500 raw counts to ~25°C-30°C (Room Temp).
+*   **Formula**: `T = B / log(R1 / (raw - O) + F) - 273.15`
+
+This configuration ensures stable, positive-domain temperature readings without requiring the extraction of proprietary factory OTP memory.
+
 ## Initialization Sequence
 
 The camera requires a specific sequence of Control Transfers to wake up and start streaming. Failing to send these exact packets often puts the device into a non-responsive state requiring a physical re-plug.

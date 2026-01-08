@@ -1,90 +1,99 @@
-"""
-Thermal data processing utilities.
-
-Converts raw sensor values to temperatures and provides analysis tools.
-"""
-
+import json
 import numpy as np
-from typing import Tuple, Optional
+import os
+import sys
 
-# FLIR One Pro LT calibration constants (approximate)
-# These may need adjustment based on camera calibration
-DEFAULT_OFFSET = 8617.0  # Planck offset
-DEFAULT_SCALE = 0.04     # Planck scale factor
-
-
-def raw_to_celsius(raw_value: np.ndarray,
-                   offset: float = DEFAULT_OFFSET,
-                   scale: float = DEFAULT_SCALE) -> np.ndarray:
-    """Convert raw thermal sensor values to Celsius.
-    
-    Note: This is an approximate conversion. The actual FLIR calibration
-    uses Planck's law with camera-specific constants stored in metadata.
-    
-    Args:
-        raw_value: Raw 16-bit sensor values
-        offset: Temperature offset
-        scale: Scale factor
+class ThermalContext:
+    def __init__(self, config_path='camera_config.json'):
+        self.config = {
+            "PlanckR1": 21106.77,
+            "PlanckB": 1506.8,
+            "PlanckF": 1.0,
+            "PlanckO": -7340,
+            "Emissivity": 0.95,
+            "ReflectedApparentTemperature": 20.0
+        }
         
-    Returns:
-        Temperature in Celsius
-    """
-    # Simplified linear approximation
-    # Real FLIR uses: T = B / ln(R1/(R2*(S+O)) + F) - 273.15
-    # where B, R1, R2, F, O are camera calibration constants
-    
-    temp_c = (raw_value.astype(np.float32) - offset) * scale
-    return temp_c
-
-
-def get_temperature_stats(thermal_raw: np.ndarray) -> dict:
-    """Calculate temperature statistics from raw thermal data.
-    
-    Args:
-        thermal_raw: 16-bit raw thermal data
+        # Try to load custom config
+        # Look in CWD and project root
+        paths = [
+            os.path.abspath(config_path), 
+            os.path.abspath(os.path.join(os.path.dirname(__file__), '..', 'camera_config.json'))
+        ]
         
-    Returns:
-        Dictionary with min, max, mean, and locations
-    """
-    temp_c = raw_to_celsius(thermal_raw)
-    
-    min_idx = np.unravel_index(np.argmin(temp_c), temp_c.shape)
-    max_idx = np.unravel_index(np.argmax(temp_c), temp_c.shape)
-    
-    return {
-        'min_c': float(np.min(temp_c)),
-        'max_c': float(np.max(temp_c)),
-        'mean_c': float(np.mean(temp_c)),
-        'min_location': (int(min_idx[1]), int(min_idx[0])),  # (x, y)
-        'max_location': (int(max_idx[1]), int(max_idx[0])),
-        'raw_min': int(np.min(thermal_raw)),
-        'raw_max': int(np.max(thermal_raw)),
-    }
-
-
-def find_hotspot(thermal_raw: np.ndarray) -> Tuple[int, int, float]:
-    """Find the hottest point in the thermal image.
-    
-    Args:
-        thermal_raw: 16-bit raw thermal data
+        loaded = False
+        sys.stderr.write(f"Thermal Context Initializing. Checking paths: {paths}\n")
         
-    Returns:
-        (x, y, temperature_celsius) tuple
-    """
-    max_idx = np.unravel_index(np.argmax(thermal_raw), thermal_raw.shape)
-    temp_c = raw_to_celsius(thermal_raw[max_idx[0], max_idx[1]])
-    return (int(max_idx[1]), int(max_idx[0]), float(temp_c))
-
-
-def find_coldspot(thermal_raw: np.ndarray) -> Tuple[int, int, float]:
-    """Find the coldest point in the thermal image.
-    
-    Args:
-        thermal_raw: 16-bit raw thermal data
+        for path in paths:
+            if os.path.exists(path):
+                try:
+                    with open(path, 'r') as f:
+                        data = json.load(f)
+                        self.config.update(data)
+                    sys.stderr.write(f"Loaded calibration from {path}\n")
+                    loaded = True
+                    break
+                except Exception as e:
+                    sys.stderr.write(f"Error loading {path}: {e}\n")
         
-    Returns:
-        (x, y, temperature_celsius) tuple
-    """
-    min_idx = np.unravel_index(np.argmin(thermal_raw), thermal_raw.shape)
-    temp_c = raw_to_celsius(thermal_raw[min_idx[0], min_idx[1]])
-    return (int(min_idx[1]), int(min_idx[0]), float(temp_c))
+        if not loaded:
+            sys.stderr.write("Using generic calibration constants (Lepton 3.5 defaults)\n")
+            
+        sys.stderr.write(f"Active PlanckO: {self.config['PlanckO']}\n")
+
+    def raw2temp(self, raw_counts):
+        """
+        Convert raw 16-bit sensor values to temperature in Celsius.
+        Formula: T = B / log(R1 / (R2 * (raw + O)) + F) - 273.15
+        Note: R2 is often absorbed/assumed 1 or part of Emissivity calculation.
+        Simplified for Flir One: T = B / log(R / (raw - O) + F) - 273.15
+        With Emissivity (E): S_obj = (raw - (1-E)*S_refl) / E
+        """
+        
+        # Constants
+        R1 = self.config["PlanckR1"]
+        B = self.config["PlanckB"]
+        F = self.config["PlanckF"]
+        O = self.config["PlanckO"]
+        E = self.config["Emissivity"]
+        T_refl = self.config["ReflectedApparentTemperature"]
+        
+        # Determine raw reflected component (reverse Planck)
+        # For simplicity in this v1, we assume raw counts are proportional to radiance
+        # and apply simple Planck. Thorough calibration requires reversing the formula for T_refl.
+        
+        # Simple Planck conversion
+        # T = B / log(R1/(raw-O) + F) - 273.15
+        
+        # Mask invalid values to avoid log errors
+        safe_raw = np.array(raw_counts, dtype=np.float32)
+        
+        # Handle scalar vs array
+        if np.ndim(safe_raw) == 0:
+            if safe_raw <= O:
+                safe_raw = O + 1.0
+        else:
+            safe_raw[safe_raw <= O] = O + 1.0 # Avoid division by zero/log errors
+        
+        # Calculate Temp
+        # Formula: T = B / log(R1 / (raw - O) + F) - 273.15
+        
+        denom = safe_raw - O
+        # Avoid zero division
+        if np.ndim(safe_raw) > 0:
+            denom[denom == 0] = 1.0
+        elif denom == 0:
+            denom = 1.0
+            
+        val = (R1 / denom) + F
+        
+        # Avoid log of non-positive
+        if np.ndim(safe_raw) > 0:
+            val[val <= 0] = 1.0
+        elif val <= 0:
+            val = 1.0
+            
+        temp_k = B / np.log(val)
+        temp_c = temp_k - 273.15
+        
+        return temp_c

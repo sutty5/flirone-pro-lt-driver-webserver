@@ -9,6 +9,7 @@ import sys
 import os
 import cv2
 import numpy as np
+from flir.thermal import ThermalContext
 
 # Video devices (from C driver)
 THERMAL_DEVICE = '/dev/video10'
@@ -75,7 +76,7 @@ def apply_colormap(thermal_8bit, palette):
 
 def main():
     print("FLIR One Pro LT Colorized Viewer")
-    print("=" * 40)
+    print("================================")
     print(f"Thermal: {THERMAL_DEVICE}")
     print(f"Visible: {VISIBLE_DEVICE}")
     print()
@@ -86,6 +87,9 @@ def main():
     print("  3 - Grayscale")
     print("  s - Save snapshot")
     print()
+    
+    # Initialize Radiometry
+    thermal_ctx = ThermalContext()
     
     # Load palettes
     palettes = {
@@ -154,9 +158,15 @@ def main():
                  if gray.size == THERMAL_HEIGHT * THERMAL_WIDTH:
                       gray = gray.reshape((THERMAL_HEIGHT, THERMAL_WIDTH))
         
-        # Get min/max for normalization
+        # Get min/max for normalization & Radiometry
         min_val = gray.min()
         max_val = gray.max()
+        
+        # Radiometric Conversion
+        center_val = gray[THERMAL_HEIGHT//2, THERMAL_WIDTH//2]
+        center_temp = thermal_ctx.raw2temp(center_val)
+        min_temp = thermal_ctx.raw2temp(min_val)
+        max_temp = thermal_ctx.raw2temp(max_val)
         
         # Normalize to 0-255
         if max_val > min_val:
@@ -174,22 +184,28 @@ def main():
         display = cv2.resize(colored, display_size, interpolation=cv2.INTER_NEAREST)
         
         # Draw info
-        cv2.putText(display, f"{palette_name} | Range: {min_val}-{max_val}", 
+        cv2.putText(display, f"{palette_name} | {min_temp:.1f}C - {max_temp:.1f}C", 
                     (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
         
         # Find and mark hottest/coldest spots
         min_loc = np.unravel_index(np.argmin(gray), gray.shape)
         max_loc = np.unravel_index(np.argmax(gray), gray.shape)
         
+        # Spot Meter (Center)
+        cx, cy = (THERMAL_WIDTH//2) * DISPLAY_SCALE, (THERMAL_HEIGHT//2) * DISPLAY_SCALE
+        cv2.drawMarker(display, (cx, cy), (200, 200, 200), cv2.MARKER_CROSS, 20, 1)
+        cv2.putText(display, f"{center_temp:.1f}", (cx + 10, cy - 10), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.5, (200, 200, 200), 1)
+        
         # Draw hotspot marker (scaled)
         hx, hy = max_loc[1] * DISPLAY_SCALE, max_loc[0] * DISPLAY_SCALE
         cv2.drawMarker(display, (hx, hy), (0, 0, 255), cv2.MARKER_CROSS, 20, 2)
-        cv2.putText(display, "HOT", (hx + 15, hy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
+        cv2.putText(display, f"{max_temp:.0f}", (hx + 15, hy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 0, 255), 2)
         
         # Draw coldspot marker
-        cx, cy = min_loc[1] * DISPLAY_SCALE, min_loc[0] * DISPLAY_SCALE
-        cv2.drawMarker(display, (cx, cy), (255, 200, 0), cv2.MARKER_CROSS, 20, 2)
-        cv2.putText(display, "COLD", (cx + 15, cy), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 200, 0), 2)
+        cx_min, cy_min = min_loc[1] * DISPLAY_SCALE, min_loc[0] * DISPLAY_SCALE
+        cv2.drawMarker(display, (cx_min, cy_min), (255, 200, 0), cv2.MARKER_CROSS, 20, 2)
+        cv2.putText(display, f"{min_temp:.0f}", (cx_min + 15, cy_min), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 200, 0), 2)
         
         cv2.imshow("FLIR Thermal", display)
         

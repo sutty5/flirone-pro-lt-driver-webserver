@@ -97,9 +97,31 @@ int open_v4l2_output(const char *device, int width, int height, int format) {
     return fd;
 }
 
+/* Save default config if not present */
+void save_default_config(void) {
+    if (access("camera_config.json", F_OK) == 0) return;
+    
+    printf("Creating default camera_config.json...\n");
+    FILE *f = fopen("camera_config.json", "w");
+    if (f) {
+        fprintf(f, "{\n");
+        fprintf(f, "    \"PlanckR1\": 21106.77,\n");
+        fprintf(f, "    \"PlanckB\": 1506.8,\n");
+        fprintf(f, "    \"PlanckF\": 1.0,\n");
+        fprintf(f, "    \"PlanckO\": -7340,\n");
+        fprintf(f, "    \"Emissivity\": 0.95,\n");
+        fprintf(f, "    \"ReflectedApparentTemperature\": 20.0\n");
+        fprintf(f, "}\n");
+        fclose(f);
+    }
+}
+
 /* Initialize USB device */
 int init_usb(void) {
     int r;
+    
+    /* Ensure config exists */
+    save_default_config();
     
     r = libusb_init(NULL);
     if (r < 0) {
@@ -255,13 +277,29 @@ void vframe(int r, int actual_length, unsigned char *buf) {
         
         /* Write full JPEG buffer size as reported by header, PLUS PADDING */
         /* Padding fixes 'overread' errors in OpenCV/FFmpeg decoders */
-        unsigned char *padded_jpg = malloc(JpgSize + 128);
+        /* 4KB is enough for a SafeZone. 64KB was overkill and might fill buffers. */
+        size_t pad_size = 4096;
+        size_t total_size = JpgSize + pad_size;
+        unsigned char *padded_jpg = malloc(total_size);
+        
         if (padded_jpg) {
             memcpy(padded_jpg, jpg_data, JpgSize);
-            memset(padded_jpg + JpgSize, 0, 128);
-            write(fd_visible, padded_jpg, JpgSize + 128);
+            memset(padded_jpg + JpgSize, 0, pad_size);
+            
+            /* Robust write loop */
+            size_t written = 0;
+            while (written < total_size) {
+                ssize_t r = write(fd_visible, padded_jpg + written, total_size - written);
+                if (r < 0) {
+                    if (errno == EAGAIN || errno == EINTR) continue;
+                    perror("write visible");
+                    break;
+                }
+                written += r;
+            }
             free(padded_jpg);
         } else {
+            /* Fallback */
             write(fd_visible, jpg_data, JpgSize);
         }
     }

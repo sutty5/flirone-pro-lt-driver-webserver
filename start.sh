@@ -73,6 +73,7 @@ if [ "$1" == "web" ]; then
     echo "Open http://localhost:5000 in your browser."
     if [ -d "$DIR/.venv" ]; then
         source "$DIR/.venv/bin/activate"
+        export PYTHONPATH="$DIR"
         python "$DIR/examples/web_viewer.py"
     else
         echo "Error: Virtual environment not found."
@@ -82,6 +83,7 @@ else
     echo "Starting Desktop Viewer..."
     if [ -d "$DIR/.venv" ]; then
         source "$DIR/.venv/bin/activate"
+        export PYTHONPATH="$DIR"
         python "$DIR/examples/simple_viewer.py"
     else
         echo "Error: Virtual environment not found."
