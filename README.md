@@ -46,13 +46,32 @@ This project unlocks the full potential of your device by outputting **16-bit Ra
 *   **Driver** (`driver/flirone.c`): 
     *   Handles USB bulk transfers (EP 0x85).
     *   Extracts proprietary frame packets (Magic `EF BE`).
-    *   Outputs Y16 Thermal -> `/dev/video10`
-    *   Outputs MJPEG Visible -> `/dev/video11`
+    *   Outputs Y16 Thermal -> `/dev/video10` (default)
+    *   Outputs MJPEG Visible -> `/dev/video11` (default)
     *   *See [docs/driver_internals.md](docs/driver_internals.md) for detailed protocol documentation.*
 *   **Web Viewer** (`examples/web_viewer.py`):
-    *   Flask server that reads Y16 data.
-    *   Applies server-side colormapping.
-    *   Streams MJPEG to browser.
+    *   Flask server that reads Y16 and MJPEG data.
+    *   **Pass-Through Visible**: Streams raw MJPEG from driver to browser (Zero latency/tearing).
+    *   **Hotspot/Coldspot**: Live tracking of min/max temperatures.
+    *   **Configurable Palettes**: Toggle between thermal palettes.
+
+## Configuration
+
+### Automatic Device Discovery (Default)
+The driver automatically finds the correct video devices by scanning for `v4l2loopback` labels (`FLIR_Thermal` and `FLIR_Visible`). You generally do NOT need to configure anything.
+
+### Manual Video Device IDs
+If you need to force specific device IDs (e.g., to resolve conflicts or for static mapping), edit `start.sh`:
+
+```bash
+# start.sh
+# Set specific numbers to force assignment (e.g., /dev/video20, /dev/video21)
+LOOPBACK_THERMAL_NR=20
+LOOPBACK_VISIBLE_NR=21
+```
+
+The script will automatically reload `v4l2loopback` with the new IDs and pass them to the driver and web viewer.
+
 *   **Desktop Viewer** (`examples/simple_viewer.py`):
     *   Direct OpenCV implementation.
     *   Fast rendering with `cv2.imshow`.

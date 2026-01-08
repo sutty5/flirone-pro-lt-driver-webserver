@@ -97,6 +97,12 @@ The driver implements a "Retry & Wait" loop during initialization (`init_usb`). 
 Code checks for `FF D8` (Start of Image) markers before writing visible frames to avoid piping garbage data to the video loopback device.
 
 ## V4L2 Loopback Integration
-The driver opens two file descriptors for output:
-1.  **Thermal**: `/dev/video10` (Configured with `bytesperline = width * 2` for 16-bit support).
-2.  **Visible**: `/dev/video11` (Configured as MJPEG).
+The driver opens two V4L2 devices for output. These are **automatically discovered** by label (`FLIR_Thermal`, `FLIR_Visible`) at startup, but can be manually pinned in `start.sh`.
+
+1.  **Thermal**: Defaults to auto-discovery (e.g. `/dev/video10`). Configured for 16-bit support.
+2.  **Visible**: Defaults to auto-discovery (e.g. `/dev/video11`). Configured for MJPEG.
+
+### Atomic Writes & Pass-Through
+To eliminate visual tearing ("overread" errors) caused by the V4L2 loopback buffer handling:
+1.  **Atomic Writes**: The driver attempts to write the entire JPEG frame to `/dev/video11` in a single system call. If the write would block or is partial, the frame is **dropped** rather than sent as a torn fragment.
+2.  **Web Viewer Pass-Through**: The web viewer (`web_viewer.py`) bypasses OpenCV decoding for the visible stream. It reads raw MJPEG frames directly from the loopback device using `os.read()`, ensuring zero-latency and 100% frame integrity.

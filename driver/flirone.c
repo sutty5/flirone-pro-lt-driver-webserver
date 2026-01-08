@@ -294,8 +294,8 @@ void vframe(int r, int actual_length, unsigned char *buf) {
         
         /* Write full JPEG buffer size as reported by header, PLUS PADDING */
         /* Padding fixes 'overread' errors in OpenCV/FFmpeg decoders */
-        /* 4KB is enough for a SafeZone. 64KB was overkill and might fill buffers. */
-        size_t pad_size = 65536; // Increased to 64KB to fix persistent tearing
+        /* Atomic write strategy: Send everything in one go or drop it. */
+        size_t pad_size = 8192; // 8KB is sufficient for safety
         size_t total_size = JpgSize + pad_size;
         unsigned char *padded_jpg = malloc(total_size);
         
@@ -303,20 +303,19 @@ void vframe(int r, int actual_length, unsigned char *buf) {
             memcpy(padded_jpg, jpg_data, JpgSize);
             memset(padded_jpg + JpgSize, 0, pad_size);
             
-            /* Robust write loop */
-            size_t written = 0;
-            while (written < total_size) {
-                ssize_t r = write(fd_visible, padded_jpg + written, total_size - written);
-                if (r < 0) {
-                    if (errno == EAGAIN || errno == EINTR) continue;
-                    perror("write visible");
-                    break;
-                }
-                if (r < (total_size - written)) {
-                    printf("Note: Partial write %zd bytes (wanted %zd)\n", r, total_size - written);
-                }
-                written += r;
+            /* Atomic Write: Attempt to send entire frame at once */
+            ssize_t r = write(fd_visible, padded_jpg, total_size);
+            
+            if (r < 0) {
+                 if (errno != EAGAIN && errno != EINTR) {
+                      perror("write visible failed");
+                 }
+            } else if (r != total_size) {
+                 /* Partial write occurred - this destroys the frame structure for v4l2loopback */
+                 /* We must DROP this frame rather than sending the rest later */
+                 printf("Warning: Dropped frame (Atomic write failed: %zd/%zd bytes)\n", r, total_size);
             }
+            
             free(padded_jpg);
         } else {
             /* Fallback */
@@ -377,6 +376,15 @@ int main(int argc, char **argv) {
     printf("FLIR One Pro LT Driver\n");
     printf("======================\n\n");
     
+    char *dev_thermal_path = VIDEO_THERMAL;
+    char *dev_visible_path = VIDEO_VISIBLE;
+
+    if (argc >= 2) dev_thermal_path = argv[1];
+    if (argc >= 3) dev_visible_path = argv[2];
+
+    printf("Target Thermal: %s\n", dev_thermal_path);
+    printf("Target Visible: %s\n", dev_visible_path);
+    
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
     
@@ -385,8 +393,8 @@ int main(int argc, char **argv) {
     }
     
     /* Open V4L2 devices - thermal as 16-bit raw (Y16) */
-    fd_thermal = open_v4l2_output(VIDEO_THERMAL, THERMAL_WIDTH, THERMAL_HEIGHT, V4L2_PIX_FMT_Y16);
-    fd_visible = open_v4l2_output(VIDEO_VISIBLE, VISIBLE_WIDTH, VISIBLE_HEIGHT, V4L2_PIX_FMT_MJPEG);
+    fd_thermal = open_v4l2_output(dev_thermal_path, THERMAL_WIDTH, THERMAL_HEIGHT, V4L2_PIX_FMT_Y16);
+    fd_visible = open_v4l2_output(dev_visible_path, VISIBLE_WIDTH, VISIBLE_HEIGHT, V4L2_PIX_FMT_MJPEG);
     
     if (fd_thermal < 0 && fd_visible < 0) {
         fprintf(stderr, "No output devices available\n");
