@@ -274,11 +274,28 @@ void vframe(int r, int actual_length, unsigned char *buf) {
         if (jpg_data[0] != 0xFF || jpg_data[1] != 0xD8) {
              printf("Warning: Malformed JPEG header\n");
         }
+
+        /* Verify JPEG EOI (FF D9) */
+        /* Some frames have trailing padding (e.g., D9 00 or 00 00), so we scan the last few bytes */
+        int found_eoi = 0;
+        for (int i = 0; i < 16; i++) {
+            if (JpgSize - 2 - i >= 0) {
+                if (jpg_data[JpgSize - 2 - i] == 0xFF && jpg_data[JpgSize - 1 - i] == 0xD9) {
+                    found_eoi = 1;
+                    break;
+                }
+            }
+        }
+        
+        if (!found_eoi) {
+             printf("Warning: Malformed JPEG footer (No EOI). Last bytes: %02X %02X\n", 
+                    jpg_data[JpgSize - 2], jpg_data[JpgSize - 1]);
+        }
         
         /* Write full JPEG buffer size as reported by header, PLUS PADDING */
         /* Padding fixes 'overread' errors in OpenCV/FFmpeg decoders */
         /* 4KB is enough for a SafeZone. 64KB was overkill and might fill buffers. */
-        size_t pad_size = 4096;
+        size_t pad_size = 65536; // Increased to 64KB to fix persistent tearing
         size_t total_size = JpgSize + pad_size;
         unsigned char *padded_jpg = malloc(total_size);
         
@@ -294,6 +311,9 @@ void vframe(int r, int actual_length, unsigned char *buf) {
                     if (errno == EAGAIN || errno == EINTR) continue;
                     perror("write visible");
                     break;
+                }
+                if (r < (total_size - written)) {
+                    printf("Note: Partial write %zd bytes (wanted %zd)\n", r, total_size - written);
                 }
                 written += r;
             }

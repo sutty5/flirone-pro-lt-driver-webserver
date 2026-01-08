@@ -60,7 +60,7 @@ This project unlocks the full potential of your device by outputting **16-bit Ra
 ## Troubleshooting
 
 - **"Device Not Found"**: The driver includes an auto-retry loop. If it fails, unplug and replug the camera, then run `lsusb` to verify it appears (ID `09cb:1996`).
-- **"Green Tearing / Glitching Video"**: The driver now uses a robust write loop and 4KB padding to prevent this. If it persists, ensure your system is not under heavy load.
+- **"Green Tearing / Glitching Video"**: The driver uses robust 64KB padding and double-buffering. If it persists, restart with `./start.sh` to ensure `v4l2loopback` is loaded with `max_buffers=2`.
 - **"Temperature Errors (>1000C or Negative)"**: Ensure `camera_config.json` exists in the project root and is readable. The `PlanckO` (Offset) should be `0` and `PlanckR1` (Gain) around `500000` for this sensor.
 - **"Permission Denied"**: `start.sh` automatically runs `chmod 666` on the video devices. If you face issues, ensure your user is in the `video` group or run the script again. If `camera_config.json` was created by root, run `sudo chown $USER:$USER camera_config.json`.
 - **"Select Timeout"**: If the web viewer hangs, press `Ctrl+C` and restart `start.sh`.

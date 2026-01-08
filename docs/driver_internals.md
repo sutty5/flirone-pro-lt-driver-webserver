@@ -20,7 +20,7 @@ The visible camera stream outputs standard JPEG frames. However, high-speed stre
 
 **Fix:** 
 1.  **Robust Write Loop**: The driver logic was updated to loop on `write()` until the entire buffer is sent to the V4L2 device, handling `EAGAIN` and partial success.
-2.  **Safety Padding**: We append **4KB** of zero-padding to every JPEG. This acts as a safety buffer for decoders that might speculatively read past the End Of Image (EOI) marker.
+2.  **Safety Padding**: We append **64KB** of zero-padding to every JPEG. This acts as a safety buffer for decoders that might speculatively read past the End Of Image (EOI) marker.
 
 ## 6. Radiometric Calibration Strategy
 
@@ -86,7 +86,7 @@ Data is received in raw chunks. The driver buffers these chunks until it detects
 ### Visible Data (MJPEG)
 *   **Resolution**: 640 x 480
 *   **Format**: Standard MJPEG stream.
-*   **Overread Protection**: The driver appends 128 bytes of zero-padding to every JPEG frame written to `/dev/video11`. This prevents visual tearing caused by decoders (like OpenCV) reading past the end of the buffer when optimizing logic.
+*   **Overread Protection**: The driver appends 65,536 bytes (64KB) of zero-padding to every JPEG frame written to `/dev/video11`. This prevents visual tearing caused by decoders (like OpenCV) reading past the end of the buffer when optimizing logic.
 
 ## Stability Mechanisms
 

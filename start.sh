@@ -36,13 +36,13 @@ sudo -v
 # 1. Ensure v4l2loopback is loaded properly
 if ! lsmod | grep -q v4l2loopback; then
     echo "Loading v4l2loopback module..."
-    sudo modprobe v4l2loopback video_nr=10,11 card_label="FLIR_Thermal,FLIR_Visible" exclusive_caps=1,1
+    sudo modprobe v4l2loopback video_nr=10,11 card_label="FLIR_Thermal,FLIR_Visible" exclusive_caps=1,1 max_buffers=2
 else
     # Check if correct devices exist
     if [ ! -e /dev/video10 ] || [ ! -e /dev/video11 ]; then
         echo "Reloading v4l2loopback module..."
         sudo rmmod v4l2loopback 2>/dev/null || true
-        sudo modprobe v4l2loopback video_nr=10,11 card_label="FLIR_Thermal,FLIR_Visible" exclusive_caps=1,1
+        sudo modprobe v4l2loopback video_nr=10,11 card_label="FLIR_Thermal,FLIR_Visible" exclusive_caps=1,1 max_buffers=2
     fi
 fi
 

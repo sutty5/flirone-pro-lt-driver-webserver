@@ -1,8 +1,10 @@
-from flask import Flask, Response, render_template_string
+from flask import Flask, Response, render_template_string, request, jsonify
 import cv2
 import numpy as np
 import time
+import os
 from flir.thermal import ThermalContext
+from flir.colormap import load_palette, PALETTE_DIR
 
 app = Flask(__name__)
 
@@ -11,24 +13,17 @@ THERMAL_DEVICE = '/dev/video10'
 VISIBLE_DEVICE = '/dev/video11'
 THERMAL_WIDTH, THERMAL_HEIGHT = 80, 60
 
-# Palette Cache
-def create_iron_palette():
-    palette = np.zeros((256, 3), dtype=np.uint8)
-    for i in range(256):
-        if i < 64:
-            palette[i] = [i * 2, 0, i * 2]
-        elif i < 128:
-            t = i - 64
-            palette[i] = [128 + t * 2, 0, 128 - t * 2]
-        elif i < 192:
-            t = i - 128
-            palette[i] = [255, t * 4, 0]
-        else:
-            t = i - 192
-            palette[i] = [255, 255, t * 4]
-    return palette
+# Global State
+CURRENT_PALETTE_NAME = "Iron2"
+CURRENT_PALETTE = load_palette(CURRENT_PALETTE_NAME)
 
-PALETTE = create_iron_palette()
+def get_available_palettes():
+    palettes = []
+    if os.path.exists(PALETTE_DIR):
+        for f in os.listdir(PALETTE_DIR):
+            if f.endswith('.raw'):
+                palettes.append(f[:-4])
+    return sorted(palettes)
 
 def apply_colormap_16bit(frame_16, ctx):
     """Normalize 16-bit frame and apply colormap with radiometry"""
@@ -41,9 +36,6 @@ def apply_colormap_16bit(frame_16, ctx):
     max_temp = ctx.raw2temp(max_val)
     center_temp = ctx.raw2temp(center_val)
     
-    # Debug print
-    print(f"Frame Stats: Raw={min_val}-{max_val} Temp={min_temp:.1f}C-{max_temp:.1f}C Center={center_temp:.1f}C")
-    
     # Avoid divide by zero for normalization
     if max_val > min_val:
         norm = ((frame_16.astype(np.float32) - min_val) * 255 / (max_val - min_val)).astype(np.uint8)
@@ -51,7 +43,8 @@ def apply_colormap_16bit(frame_16, ctx):
         norm = np.zeros_like(frame_16, dtype=np.uint8)
     
     # Apply palette (RGB)
-    colored = PALETTE[norm]
+    # Use global CURRENT_PALETTE
+    colored = CURRENT_PALETTE[norm]
     # Convert RGB to BGR for OpenCV encoding
     bgr = colored[:, :, ::-1].copy()
     
@@ -74,6 +67,7 @@ def apply_colormap_16bit(frame_16, ctx):
 def generate_thermal():
     cap = cv2.VideoCapture(THERMAL_DEVICE)
     cap.set(cv2.CAP_PROP_CONVERT_RGB, 0)
+    # Try to set format, but it depends on the driver if this is needed or respected
     cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('Y','1','6',' '))
     
     # Initialize Radiometry
@@ -89,11 +83,11 @@ def generate_thermal():
             time.sleep(0.1)
             continue
         
-        # Handle 16-bit frame
+        # Handle 16-bit frame logic
         if frame.dtype == np.uint16:
              gray = frame.view(np.uint16)
         else:
-             # Basic fallback check
+             # Basic fallback check for 8-bit containers of 16-bit data
              if frame.shape[1] == THERMAL_WIDTH * 2:
                   gray = frame.view(np.uint16)
              else:
@@ -132,6 +126,7 @@ def generate_visible():
 
 @app.route('/')
 def index():
+    palettes = get_available_palettes()
     return render_template_string('''
 <html>
 <head>
@@ -142,10 +137,30 @@ def index():
         .stream { background: #000; padding: 10px; border-radius: 8px; }
         h2 { margin-top: 0; }
         img { max-width: 100%; height: auto; border-radius: 4px; }
+        .controls { margin: 20px; padding: 10px; background: #333; border-radius: 8px; display: inline-block; }
+        select { padding: 5px; font-size: 16px; border-radius: 4px; }
     </style>
+    <script>
+        function updatePalette(selectObject) {
+            var value = selectObject.value;  
+            fetch('/api/set_palette?name=' + value)
+                .then(response => response.json())
+                .then(data => console.log(data));
+        }
+    </script>
 </head>
 <body>
     <h1>FLIR One Pro LT Stream</h1>
+    
+    <div class="controls">
+        <label for="palette">Color Palette: </label>
+        <select id="palette" onchange="updatePalette(this)">
+            {% for p in palettes %}
+            <option value="{{ p }}" {% if p == current_palette %}selected{% endif %}>{{ p }}</option>
+            {% endfor %}
+        </select>
+    </div>
+
     <div class="container">
         <div class="stream">
             <h2>Thermal (Radiometric °C)</h2>
@@ -158,7 +173,7 @@ def index():
     </div>
 </body>
 </html>
-    ''')
+    ''', palettes=palettes, current_palette=CURRENT_PALETTE_NAME)
 
 @app.route('/video_thermal')
 def video_thermal():
@@ -167,6 +182,18 @@ def video_thermal():
 @app.route('/video_visible')
 def video_visible():
     return Response(generate_visible(), mimetype='multipart/x-mixed-replace; boundary=frame')
+
+@app.route('/api/set_palette')
+def set_palette():
+    global CURRENT_PALETTE, CURRENT_PALETTE_NAME
+    name = request.args.get('name')
+    if name:
+        new_palette = load_palette(name)
+        # Simple check if load_palette returned a valid array (it always returns something valid, even if fallback)
+        CURRENT_PALETTE = new_palette
+        CURRENT_PALETTE_NAME = name
+        return jsonify({"status": "ok", "palette": name})
+    return jsonify({"status": "error", "message": "No name provided"}), 400
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, threaded=True)
